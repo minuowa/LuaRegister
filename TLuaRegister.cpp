@@ -43,14 +43,14 @@ bool TLuaRegister::init ( const char* path, const char* ext , const char* saveFi
         GString filename;
         filename += path;
         filename += fileDir.name;
-		//if (dStrEqual(fileDir.name,"GSceneMgr.h"))
-		//{
-		//	OutputDebugStringA("1");
-		//}
+        //if (dStrEqual(fileDir.name,"GSceneMgr.h"))
+        //{
+        //	OutputDebugStringA("1");
+        //}
         if ( parserFile ( filename.c_str() ) )
         {
-			//printf ( "%s\n", fileDir.name );
-			mHeaders.push_back ( fileDir.name );
+            //printf ( "%s\n", fileDir.name );
+            mHeaders.push_back ( fileDir.name );
         }
     }
     while ( _findnext ( lfDir, &fileDir ) == 0 );
@@ -96,7 +96,7 @@ bool TLuaRegister::parseCurTokens()
             CXASSERT_RETURN_FALSE ( !mLuaObjs.Get ( mCurClass, luaobj ) );
             luaobj = new TLuaObj;
             luaobj->mThisClass = mCurClass;
-            luaobj->mClassBase = basetype;
+            luaobj->mBaseClass = basetype;
             mLuaObjs.Insert ( mCurClass, luaobj );
         }
         break;
@@ -163,8 +163,6 @@ for ( auto h : mHeaders )
             ofs << "#include \"" << h << "\"\n";
         }
 
-
-
         if ( !mLuaObjs.empty() )
         {
             addSpace ( ofs );
@@ -172,40 +170,84 @@ for ( auto h : mHeaders )
                 << "int luaRegistAll()\n"
                 << "{";
 
+            ofs << "\n";
 for ( auto g: mGlobalFunctions )
             {
-                ofs << "\n";
                 addSpace ( ofs );
                 ofs << "gLuaScript.regGlobalFun ( \"" << g << "\", " << g << " );\n";
             }
 
 for ( auto obj: mLuaObjs )
             {
-                ofs << "\n";
-                addSpace ( ofs );
-                TLuaObj* pobj = obj.second;
-
-                assert ( !pobj->mThisClass.empty() );
-                ofs << "gLuaScript.regClass<" << pobj->mThisClass.c_str();
-                if ( !pobj->mClassBase.empty() )
-                    ofs << "," << pobj->mClassBase.c_str();
-                ofs << ">( \"" << pobj->mThisClass.c_str() << "\" );\n";
-
-                //constructor
-                addSpace ( ofs );
-                ofs << "gLuaScript.regClassCreator<" << pobj->mThisClass.c_str() << ">( );\n";
-
-for ( auto fun: pobj->mFunctions )
-                {
-                    addSpace ( ofs );
-                    ofs << "gLuaScript.regClassFunction<" << pobj->mThisClass.c_str() << ">";
-                    ofs << "( \"" << fun << "\", &" << pobj->mThisClass << "::" << fun << " );\n";
-                }
+                outRawLuaObj ( ofs, obj.second );
             }
             ofs << "\n";
             addSpace ( ofs );
             ofs << "return 0;\n}";
         }
         ofs.close();
+    }
+}
+
+
+void TLuaRegister::outRawLuaObj ( std::ofstream& ofs, TLuaObj* rawObj )
+{
+    CXStack<GString> typesStack;
+    sortToStack ( rawObj, typesStack );
+
+    while ( !typesStack.empty() )
+    {
+        auto stype = typesStack.top();
+        typesStack.pop();
+        TLuaObj* pobj = nullptr;
+        mLuaObjs.Get ( stype, pobj );
+
+        if ( !pobj->mOut )
+        {
+            pobj->mOut = true;
+            outLuaObj ( ofs, pobj );
+        }
+    }
+}
+
+void TLuaRegister::sortToStack ( TLuaObj* rawObj, CXStack<GString>& stack )
+{
+    if ( rawObj->mOut )
+        return ;
+    stack.push ( rawObj->mThisClass );
+    /** @brief ensure base class regist before child class **/
+    if ( rawObj->mBaseClass.empty() )
+        return ;
+
+    TLuaObj* baseObj = nullptr;
+    TLuaObj* pobj = rawObj;
+    mLuaObjs.Get ( rawObj->mBaseClass, baseObj );
+    CXASSERT_RETURN ( baseObj );
+
+    if ( baseObj->mOut )
+        return ;
+
+    sortToStack ( baseObj, stack );
+}
+
+void TLuaRegister::outLuaObj ( std::ofstream& ofs, TLuaObj* pObj )
+{
+    ofs << "\n";
+    addSpace ( ofs );
+    CXASSERT_RETURN ( pObj && !pObj->mThisClass.empty() );
+    ofs << "gLuaScript.regClass<" << pObj->mThisClass.c_str();
+    if ( !pObj->mBaseClass.empty() )
+        ofs << "," << pObj->mBaseClass.c_str();
+    ofs << ">( \"" << pObj->mThisClass.c_str() << "\" );\n";
+
+    //constructor
+    addSpace ( ofs );
+    ofs << "gLuaScript.regClassCreator<" << pObj->mThisClass.c_str() << ">( );\n";
+
+for ( auto fun: pObj->mFunctions )
+    {
+        addSpace ( ofs );
+        ofs << "gLuaScript.regClassFunction<" << pObj->mThisClass.c_str() << ">";
+        ofs << "( \"" << fun << "\", &" << pObj->mThisClass << "::" << fun << " );\n";
     }
 }
